@@ -41,21 +41,331 @@ jobs:
           echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
           echo "Proyecto encontrado en: $PROJECT_ROOT"
 
-      - name: Inspect JE2BE Android project source
+      - name: Apply visual themes and licensed artwork
         shell: bash
         run: |
           set -euo pipefail
-          echo "===== PROJECT FILES ====="
-          find "$PROJECT_ROOT/app/src/main" -maxdepth 5 -type f | sort
-          echo "===== APP GRADLE ====="
-          cat "$PROJECT_ROOT/app/build.gradle.kts"
-          echo "===== MAIN ACTIVITY 1-260 ====="
-          sed -n '1,260p' "$PROJECT_ROOT/app/src/main/java/app/je2be/android/MainActivity.kt"
-          echo "===== MAIN ACTIVITY 261-520 ====="
-          sed -n '261,520p' "$PROJECT_ROOT/app/src/main/java/app/je2be/android/MainActivity.kt"
-          echo "===== README ====="
-          sed -n '1,220p' "$PROJECT_ROOT/README.md"
-          exit 1
+          python3 - <<'PY'
+          import os
+          import re
+          import urllib.request
+          from pathlib import Path
+
+          root = Path(os.environ["PROJECT_ROOT"])
+          java_dir = root / "app/src/main/java/app/je2be/android"
+          main_file = java_dir / "MainActivity.kt"
+          worker_file = java_dir / "ConvertWorker.kt"
+          cmake_files = list((root / "app/src/main/cpp").rglob("CMakeLists.txt"))
+          main = main_file.read_text(encoding="utf-8")
+          worker = worker_file.read_text(encoding="utf-8")
+
+          old_worker = "val nativeHandle = Native.newJob()\n        try {"
+          if old_worker in worker:
+              worker = worker.replace(old_worker, "val nativeHandle = Native.newJob()\n        return try {", 1)
+              worker_file.write_text(worker, encoding="utf-8")
+
+          old_name = 'val name = info.inputData.getString(ConvertWorker.KEY_INPUT_NAME) ?: "Mundo"'
+          new_name = 'val name = info.tags.firstOrNull { it.startsWith("je2be-name:") }?.substringAfter("je2be-name:") ?: "Mundo"'
+          old_mode = 'val modeId = info.inputData.getInt(ConvertWorker.KEY_MODE, 0)'
+          new_mode = 'val modeId = info.tags.firstOrNull { it.startsWith("je2be-mode:") }?.substringAfter("je2be-mode:")?.toIntOrNull() ?: 0'
+          for old, new, label in [
+              (old_name, new_name, "nombre del mundo"),
+              (old_mode, new_mode, "modo de conversión"),
+          ]:
+              if old in main:
+                  main = main.replace(old, new, 1)
+              elif new not in main:
+                  raise SystemExit(f"No se encontró la lectura de {label} en JobCard.")
+
+          old_tag = ".addTag(ConvertWorker.TAG)"
+          new_tag = old_tag + '\n                            .addTag("je2be-name:${source.name}")\n                            .addTag("je2be-mode:$mode")'
+          if old_tag in main and 'je2be-name:' not in main:
+              main = main.replace(old_tag, new_tag, 1)
+
+          import_anchors = {
+              "import androidx.compose.foundation.BorderStroke": [
+                  "import androidx.compose.foundation.Image",
+                  "import androidx.compose.foundation.horizontalScroll",
+              ],
+              "import androidx.compose.runtime.Composable": [
+                  "import androidx.compose.runtime.CompositionLocalProvider",
+                  "import androidx.compose.runtime.staticCompositionLocalOf",
+              ],
+              "import androidx.compose.ui.platform.LocalContext": [
+                  "import androidx.compose.ui.layout.ContentScale",
+                  "import androidx.compose.ui.res.painterResource",
+              ],
+          }
+          for anchor, additions in import_anchors.items():
+              if anchor not in main:
+                  raise SystemExit(f"No se encontró import anchor: {anchor}")
+              present = [line for line in additions if line not in main]
+              if present:
+                  main = main.replace(anchor, anchor + "\n" + "\n".join(present), 1)
+
+          old_colors = """private val Ink = Color(0xFF07121C)
+          private val Panel = Color(0xFF101F2B)
+          private val PanelRaised = Color(0xFF172B38)
+          private val Mint = Color(0xFF65F0C1)
+          private val Aqua = Color(0xFF59D8E8)
+          private val Muted = Color(0xFF9CB1BE)
+          private val SoftWhite = Color(0xFFEAF4F7)"""
+          theme_block = """private data class Je2beTheme(
+              val id: String,
+              val name: String,
+              val detail: String,
+              val background: Color,
+              val panel: Color,
+              val panelRaised: Color,
+              val accent: Color,
+              val secondary: Color,
+              val muted: Color,
+              val text: Color,
+              val border: Color,
+              val heroStart: Color,
+              val heroEnd: Color,
+              val symbol: String,
+              val imageRes: Int
+          ) {
+              fun colorScheme() = darkColorScheme(
+                  primary = accent,
+                  onPrimary = background,
+                  secondary = secondary,
+                  background = background,
+                  surface = panel,
+                  surfaceVariant = panelRaised,
+                  onBackground = text,
+                  onSurface = text,
+                  onSurfaceVariant = muted
+              )
+          }
+
+          private val themeOptions = listOf(
+              Je2beTheme("ladybug", "Ladybug", "Rojo · París", Color(0xFF190D13), Color(0xFF2A121B), Color(0xFF401B27), Color(0xFFFF4C68), Color(0xFFFF9AAD), Color(0xFFD6A7B2), Color(0xFFFFF0F3), Color(0xFF653041), Color(0xFF701B2C), Color(0xFF210E1B), "🐞", R.drawable.je2be_art_ladybug),
+              Je2beTheme("fox", "Zorro", "Naranja · Ámbar", Color(0xFF170C08), Color(0xFF29150D), Color(0xFF402315), Color(0xFFFF8B3D), Color(0xFFFFD18B), Color(0xFFDAB49B), Color(0xFFFFF4E8), Color(0xFF70402A), Color(0xFF7A2E11), Color(0xFF211109), "🦊", R.drawable.je2be_art_fox),
+              Je2beTheme("peacock", "Pavo Real", "Índigo · Turquesa", Color(0xFF0D1026), Color(0xFF191C40), Color(0xFF262B5B), Color(0xFF46D8D0), Color(0xFFC28AFF), Color(0xFFB6B8DA), Color(0xFFF4F4FF), Color(0xFF414A8C), Color(0xFF162D61), Color(0xFF11132D), "🦚", R.drawable.je2be_art_peacock),
+              Je2beTheme("noir", "Chat Noir", "Carbón · Verde", Color(0xFF090F0C), Color(0xFF131E19), Color(0xFF202C25), Color(0xFFA6E35C), Color(0xFFE6CE86), Color(0xFFB0C2B5), Color(0xFFF3FBF4), Color(0xFF3D5B43), Color(0xFF101D16), Color(0xFF0B120E), "🐈‍⬛", R.drawable.je2be_art_paris),
+              Je2beTheme("classic", "JE2BE clásico", "Menta · Cian", Color(0xFF07121C), Color(0xFF101F2B), Color(0xFF172B38), Color(0xFF65F0C1), Color(0xFF59D8E8), Color(0xFF9CB1BE), Color(0xFFEAF4F7), Color(0xFF203746), Color(0xFF153B3B), Color(0xFF17263E), "✦", R.drawable.je2be_art_paris)
+          )
+
+          private val LocalJe2beTheme = staticCompositionLocalOf { themeOptions.last() }
+          private val Ink: Color @Composable get() = LocalJe2beTheme.current.background
+          private val Panel: Color @Composable get() = LocalJe2beTheme.current.panel
+          private val PanelRaised: Color @Composable get() = LocalJe2beTheme.current.panelRaised
+          private val Mint: Color @Composable get() = LocalJe2beTheme.current.accent
+          private val Aqua: Color @Composable get() = LocalJe2beTheme.current.secondary
+          private val Muted: Color @Composable get() = LocalJe2beTheme.current.muted
+          private val SoftWhite: Color @Composable get() = LocalJe2beTheme.current.text"""
+          if old_colors in main:
+              main = main.replace(old_colors, theme_block, 1)
+          elif "private data class Je2beTheme(" not in main:
+              raise SystemExit("No se encontró el bloque de colores original.")
+
+          palette_start = main.find("        val palette = darkColorScheme(")
+          palette_end = main.find("\n    }\n}", palette_start)
+          if palette_start >= 0 and palette_end >= 0:
+              new_root = """        val preferences = getSharedPreferences("je2be_visual", MODE_PRIVATE)
+                  setContent {
+                      var selectedThemeId by remember {
+                          mutableStateOf(preferences.getString("theme_id", "ladybug") ?: "ladybug")
+                      }
+                      val selectedTheme = themeOptions.firstOrNull { it.id == selectedThemeId } ?: themeOptions.first()
+                      MaterialTheme(colorScheme = selectedTheme.colorScheme()) {
+                          CompositionLocalProvider(LocalJe2beTheme provides selectedTheme) {
+                              Surface(modifier = Modifier.fillMaxSize(), color = selectedTheme.background) {
+                                  Je2beScreen(
+                                      selectedThemeId = selectedThemeId,
+                                      onThemeChange = { themeId ->
+                                          selectedThemeId = themeId
+                                          preferences.edit().putString("theme_id", themeId).apply()
+                                      }
+                                  )
+                              }
+                          }
+                      }
+                  }"""
+              main = main[:palette_start] + new_root + main[palette_end:]
+          elif "Je2beScreen(selectedThemeId" not in main:
+              raise SystemExit("No se pudo sustituir la paleta fija de onCreate.")
+
+          main = main.replace(
+              "private fun Je2beScreen() {",
+              "private fun Je2beScreen(selectedThemeId: String, onThemeChange: (String) -> Unit) {",
+              1
+          )
+          if "private fun Je2beScreen(selectedThemeId:" not in main:
+              raise SystemExit("No se actualizó la firma de Je2beScreen.")
+
+          header_anchor = "            HeaderPanel()\n"
+          if header_anchor in main and "ThemeSelector(selectedThemeId" not in main:
+              main = main.replace(
+                  header_anchor,
+                  header_anchor + "            ThemeSelector(selectedThemeId, onThemeChange)\n",
+                  1
+              )
+
+          selector = """
+          @Composable
+          private fun ThemeSelector(selectedThemeId: String, onThemeChange: (String) -> Unit) {
+              Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                  SectionHeading("00", "Estilo visual", "Elige una apariencia; se guarda automáticamente")
+                  Row(
+                      modifier = Modifier.horizontalScroll(rememberScrollState()),
+                      horizontalArrangement = Arrangement.spacedBy(10.dp)
+                  ) {
+                      themeOptions.forEach { theme ->
+                          val selected = theme.id == selectedThemeId
+                          Card(
+                              modifier = Modifier.width(142.dp).clickable { onThemeChange(theme.id) },
+                              shape = RoundedCornerShape(18.dp),
+                              colors = CardDefaults.cardColors(containerColor = theme.panel),
+                              border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) theme.accent else theme.border)
+                          ) {
+                              Column {
+                                  Box(Modifier.fillMaxWidth().height(82.dp)) {
+                                      Image(
+                                          painter = painterResource(theme.imageRes),
+                                          contentDescription = "Imagen del tema ${theme.name}",
+                                          modifier = Modifier.fillMaxSize(),
+                                          contentScale = ContentScale.Crop
+                                      )
+                                      Box(
+                                          Modifier.fillMaxSize().background(
+                                              Brush.verticalGradient(listOf(Color.Transparent, theme.background.copy(alpha = 0.88f)))
+                                          )
+                                      )
+                                      Text(theme.symbol, modifier = Modifier.align(Alignment.Center), fontSize = 31.sp, color = Color.White)
+                                      if (selected) {
+                                          Surface(
+                                              modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
+                                              shape = CircleShape,
+                                              color = theme.accent
+                                          ) {
+                                              Text("✓", modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = theme.background, fontSize = 11.sp, fontWeight = FontWeight.Black)
+                                          }
+                                      }
+                                  }
+                                  Column(Modifier.padding(horizontal = 10.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                      Text(theme.name, color = theme.text, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                      Text(theme.detail, color = theme.muted, fontSize = 10.sp, maxLines = 1)
+                                  }
+                              }
+                          }
+                      }
+                  }
+              }
+          }
+
+          """
+          selector_anchor = "@Composable\nprivate fun HeaderPanel()"
+          if "private fun ThemeSelector(" not in main:
+              if selector_anchor not in main:
+                  raise SystemExit("No se encontró el punto de inserción del selector de temas.")
+              main = main.replace(selector_anchor, selector + selector_anchor, 1)
+
+          main = main.replace(
+              "private fun HeaderPanel() {\n    Box(",
+              "private fun HeaderPanel() {\n    val theme = LocalJe2beTheme.current\n    Box(",
+              1
+          )
+          main = main.replace(
+              ".background(Brush.linearGradient(listOf(Color(0xFF153B3B), Color(0xFF102A3B), Color(0xFF17263E))))",
+              ".background(Brush.linearGradient(listOf(theme.heroStart, theme.heroEnd, theme.background)))",
+              1
+          )
+          header_column = "        Column(verticalArrangement = Arrangement.spacedBy(13.dp)) {\n            Row(verticalAlignment = Alignment.CenterVertically) {"
+          header_with_photo = """        Column(verticalArrangement = Arrangement.spacedBy(13.dp)) {
+                      Box(Modifier.fillMaxWidth().height(112.dp).clip(RoundedCornerShape(18.dp))) {
+                          Image(
+                              painter = painterResource(theme.imageRes),
+                              contentDescription = "Imagen temática ${theme.name}",
+                              modifier = Modifier.fillMaxSize(),
+                              contentScale = ContentScale.Crop
+                          )
+                          Box(
+                              Modifier.fillMaxSize().background(
+                                  Brush.horizontalGradient(listOf(theme.background.copy(alpha = 0.82f), theme.background.copy(alpha = 0.12f)))
+                              )
+                          )
+                          Text(theme.symbol, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 18.dp), color = Color.White.copy(alpha = 0.95f), fontSize = 52.sp)
+                      }
+                      Row(verticalAlignment = Alignment.CenterVertically) {"""
+          if header_column in main:
+              main = main.replace(header_column, header_with_photo, 1)
+          elif "Imagen temática ${theme.name}" not in main:
+              raise SystemExit("No se pudo insertar la imagen real en el encabezado.")
+
+          marker = main.find("class MainActivity : ComponentActivity()")
+          prefix, suffix = main[:marker], main[marker:]
+          replacements = {
+              "Color(0xFF203746)": "LocalJe2beTheme.current.border",
+              "Color(0xFF426071)": "LocalJe2beTheme.current.border",
+              "Color(0xFF173B3A)": "PanelRaised",
+              "Color(0xFF0B1923)": "Ink.copy(alpha = 0.62f)",
+              "Color(0xFF263B45)": "PanelRaised",
+              "Color(0xFF354B59)": "LocalJe2beTheme.current.border",
+              "Color(0xFF153A38)": "PanelRaised",
+              "Color(0xFF65F0C1)": "Mint",
+              "Color(0xFFB6D2D2)": "SoftWhite.copy(alpha = 0.78f)",
+              "Color(0xFFB6C9D2)": "SoftWhite.copy(alpha = 0.78f)",
+          }
+          for old, new in replacements.items():
+              suffix = suffix.replace(old, new)
+          main_file.write_text(prefix + suffix, encoding="utf-8")
+
+          for cmake in cmake_files:
+              cmake_text = cmake.read_text(encoding="utf-8")
+              if re.search(r"add_library\s*\(\s*je2be_jni\b", cmake_text):
+                  marker = "target_compile_options(je2be_jni PRIVATE -Wno-error=sign-compare -Wno-error=unused-variable -Wno-error=delete-non-abstract-non-virtual-dtor)"
+                  if marker not in cmake_text:
+                      cmake.write_text(cmake_text + "\n\n" + marker + "\n", encoding="utf-8")
+
+          drawable = root / "app/src/main/res/drawable-nodpi"
+          drawable.mkdir(parents=True, exist_ok=True)
+          images = {
+              "je2be_art_ladybug.jpg": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Lady_bird.jpg?width=960",
+              "je2be_art_fox.jpg": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Red_Fox.jpg?width=960",
+              "je2be_art_peacock.jpg": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Peacock_feather_images.jpg?width=960",
+              "je2be_art_paris.jpg": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Eiffel_Tower_at_night,_Paris.jpg?width=1280",
+          }
+          for filename, url in images.items():
+              target = drawable / filename
+              request = urllib.request.Request(
+                  url,
+                  headers={"User-Agent": "JE2BE-Android/1.0 (personal app build; image credits bundled)"}
+              )
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  data = response.read()
+                  content_type = response.headers.get("Content-Type", "")
+              if not content_type.startswith("image/") or len(data) < 5000:
+                  raise SystemExit(f"Descarga de imagen no válida: {filename} ({content_type}, {len(data)} bytes)")
+              target.write_bytes(data)
+              print(f"{filename}: {len(data)} bytes")
+
+          assets = root / "app/src/main/assets"
+          assets.mkdir(parents=True, exist_ok=True)
+          credits = """JE2BE Android – créditos de imágenes
+
+          Las fotografías proceden de Wikimedia Commons y se usan como fondos de los temas visuales; no son personajes ni material oficial de Miraculous.
+
+          - Ladybird: “Lady bird.jpg”, Sumanbargavr, CC BY-SA 4.0.
+            https://commons.wikimedia.org/wiki/File:Lady_bird.jpg
+            https://creativecommons.org/licenses/by-sa/4.0/
+          - Zorro: “Red Fox.jpg”, RaniaFadil, CC BY-SA 4.0.
+            https://commons.wikimedia.org/wiki/File:Red_Fox.jpg
+            https://creativecommons.org/licenses/by-sa/4.0/
+          - Pavo Real: “Peacock feather images.jpg”, Waran R Samay, CC BY 4.0.
+            https://commons.wikimedia.org/wiki/File:Peacock_feather_images.jpg
+            https://creativecommons.org/licenses/by/4.0/
+          - París / Chat Noir / JE2BE clásico: “Eiffel Tower at night, Paris.jpg”, Ivan Kuzmin, CC BY-SA 4.0.
+            https://commons.wikimedia.org/wiki/File:Eiffel_Tower_at_night,_Paris.jpg
+            https://creativecommons.org/licenses/by-sa/4.0/
+
+          Las imágenes se descargan en versiones reducidas para utilizarlas como fondos. Los autores y las licencias se conservan para atribución.
+          """
+          (assets / "IMAGE_CREDITS.md").write_text(credits, encoding="utf-8")
+          print("Temas visuales y créditos instalados.")
+          PY
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
