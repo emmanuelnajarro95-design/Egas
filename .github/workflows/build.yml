@@ -41,58 +41,21 @@ jobs:
           echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
           echo "Proyecto encontrado en: $PROJECT_ROOT"
 
-      - name: Patch Android worker and job metadata
+      - name: Inspect JE2BE Android project source
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          root = Path(__import__("os").environ["PROJECT_ROOT"])
-          worker = root / "app/src/main/java/app/je2be/android/ConvertWorker.kt"
-          activity = root / "app/src/main/java/app/je2be/android/MainActivity.kt"
-
-          worker_text = worker.read_text(encoding="utf-8")
-          old_worker = "val nativeHandle = Native.newJob()\n        try {"
-          new_worker = "val nativeHandle = Native.newJob()\n        return try {"
-          if old_worker not in worker_text:
-              raise SystemExit("No se encontró el bloque esperado en ConvertWorker.kt")
-          worker.write_text(worker_text.replace(old_worker, new_worker, 1), encoding="utf-8")
-
-          activity_text = activity.read_text(encoding="utf-8")
-          old_name = 'val name = info.inputData.getString(ConvertWorker.KEY_INPUT_NAME) ?: "Mundo"'
-          new_name = 'val name = info.tags.firstOrNull { it.startsWith("je2be-name:") }?.substringAfter("je2be-name:") ?: "Mundo"'
-          old_mode = 'val modeId = info.inputData.getInt(ConvertWorker.KEY_MODE, 0)'
-          new_mode = 'val modeId = info.tags.firstOrNull { it.startsWith("je2be-mode:") }?.substringAfter("je2be-mode:")?.toIntOrNull() ?: 0'
-          old_tag = ".addTag(ConvertWorker.TAG)"
-          new_tag = old_tag + '\n                            .addTag("je2be-name:${source.name}")\n                            .addTag("je2be-mode:$mode")'
-
-          for old, new, label in [
-              (old_name, new_name, "nombre del mundo"),
-              (old_mode, new_mode, "modo de conversión"),
-              (old_tag, new_tag, "etiquetas de la solicitud"),
-          ]:
-              if old not in activity_text:
-                  raise SystemExit(f"No se encontró el código esperado para {label} en MainActivity.kt")
-              activity_text = activity_text.replace(old, new, 1)
-
-          activity.write_text(activity_text, encoding="utf-8")
-
-          import re
-          cmake_candidates = []
-          for cmake in root.rglob("CMakeLists.txt"):
-              cmake_text = cmake.read_text(encoding="utf-8")
-              if re.search(r"add_library\s*\(\s*je2be_jni\b", cmake_text):
-                  marker = "target_compile_options(je2be_jni PRIVATE -Wno-error=sign-compare -Wno-error=unused-variable -Wno-error=delete-non-abstract-non-virtual-dtor)"
-                  if marker not in cmake_text:
-                      cmake_text += "\n\n" + marker + "\n"
-                      cmake.write_text(cmake_text, encoding="utf-8")
-                  cmake_candidates.append(str(cmake))
-          if not cmake_candidates:
-              raise SystemExit("No se encontró el CMakeLists que declara je2be_jni.")
-          print("Opciones de warnings C++ aplicadas en:", ", ".join(cmake_candidates))
-          print("Correcciones Kotlin y CMake aplicadas.")
-          PY
+          echo "===== PROJECT FILES ====="
+          find "$PROJECT_ROOT/app/src/main" -maxdepth 5 -type f | sort
+          echo "===== APP GRADLE ====="
+          cat "$PROJECT_ROOT/app/build.gradle.kts"
+          echo "===== MAIN ACTIVITY 1-260 ====="
+          sed -n '1,260p' "$PROJECT_ROOT/app/src/main/java/app/je2be/android/MainActivity.kt"
+          echo "===== MAIN ACTIVITY 261-520 ====="
+          sed -n '261,520p' "$PROJECT_ROOT/app/src/main/java/app/je2be/android/MainActivity.kt"
+          echo "===== README ====="
+          sed -n '1,220p' "$PROJECT_ROOT/README.md"
+          exit 1
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
