@@ -41,21 +41,44 @@ jobs:
           echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
           echo "Proyecto encontrado en: $PROJECT_ROOT"
 
-      - name: Show Kotlin compile context
+      - name: Patch Android worker and job metadata
         shell: bash
         run: |
           set -euo pipefail
-          echo "===== ConvertWorker.kt ====="
-          nl -ba "$PROJECT_ROOT/app/src/main/java/app/je2be/android/ConvertWorker.kt" | sed -n '55,110p'
-          echo "===== MainActivity.kt ====="
-          nl -ba "$PROJECT_ROOT/app/src/main/java/app/je2be/android/MainActivity.kt" | sed -n '425,465p'
-          echo "===== ConvertWorker.kt start ====="
-          nl -ba "$PROJECT_ROOT/app/src/main/java/app/je2be/android/ConvertWorker.kt" | sed -n '1,58p'
-          echo "===== MainActivity enqueue and JobCard call sites ====="
-          grep -n -E 'JobCard\(|OneTimeWorkRequestBuilder|ConvertWorker|inputData' "$PROJECT_ROOT/app/src/main/java/app/je2be/android/MainActivity.kt" | head -n 100
-          echo "===== MainActivity around worker enqueue ====="
-          nl -ba "$PROJECT_ROOT/app/src/main/java/app/je2be/android/MainActivity.kt" | sed -n '100,235p'
-          exit 1
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path(__import__("os").environ["PROJECT_ROOT"])
+          worker = root / "app/src/main/java/app/je2be/android/ConvertWorker.kt"
+          activity = root / "app/src/main/java/app/je2be/android/MainActivity.kt"
+
+          worker_text = worker.read_text(encoding="utf-8")
+          old_worker = "val nativeHandle = Native.newJob()\n        try {"
+          new_worker = "val nativeHandle = Native.newJob()\n        return try {"
+          if old_worker not in worker_text:
+              raise SystemExit("No se encontró el bloque esperado en ConvertWorker.kt")
+          worker.write_text(worker_text.replace(old_worker, new_worker, 1), encoding="utf-8")
+
+          activity_text = activity.read_text(encoding="utf-8")
+          old_name = 'val name = info.inputData.getString(ConvertWorker.KEY_INPUT_NAME) ?: "Mundo"'
+          new_name = 'val name = info.tags.firstOrNull { it.startsWith("je2be-name:") }?.substringAfter("je2be-name:") ?: "Mundo"'
+          old_mode = 'val modeId = info.inputData.getInt(ConvertWorker.KEY_MODE, 0)'
+          new_mode = 'val modeId = info.tags.firstOrNull { it.startsWith("je2be-mode:") }?.substringAfter("je2be-mode:")?.toIntOrNull() ?: 0'
+          old_tag = ".addTag(ConvertWorker.TAG)"
+          new_tag = old_tag + '\n                            .addTag("je2be-name:${source.name}")\n                            .addTag("je2be-mode:$mode")'
+
+          for old, new, label in [
+              (old_name, new_name, "nombre del mundo"),
+              (old_mode, new_mode, "modo de conversión"),
+              (old_tag, new_tag, "etiquetas de la solicitud"),
+          ]:
+              if old not in activity_text:
+                  raise SystemExit(f"No se encontró el código esperado para {label} en MainActivity.kt")
+              activity_text = activity_text.replace(old, new, 1)
+
+          activity.write_text(activity_text, encoding="utf-8")
+          print("Correcciones Kotlin aplicadas.")
+          PY
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
