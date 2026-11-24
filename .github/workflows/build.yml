@@ -41,6 +41,15 @@ jobs:
           echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
           echo "Proyecto encontrado en: $PROJECT_ROOT"
 
+      - name: Show Kotlin compile context
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "===== ConvertWorker.kt ====="
+          nl -ba "$PROJECT_ROOT/app/src/main/java/app/je2be/android/ConvertWorker.kt" | sed -n '55,110p'
+          echo "===== MainActivity.kt ====="
+          nl -ba "$PROJECT_ROOT/app/src/main/java/app/je2be/android/MainActivity.kt" | sed -n '425,465p'
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
