@@ -1,0 +1,85 @@
+name: Build JE2BE Android APK
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Build JE2BE Android ARM64 APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 2
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Locate and extract uploaded project ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP="$(find . -maxdepth 2 -type f -name 'je2be-android-visual-y-compilacion.zip' -print -quit)"
+          if [ -z "$ZIP" ]; then
+            echo "No se encontró je2be-android-visual-y-compilacion.zip en el repositorio."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/je2be-project"
+          unzip -q "$ZIP" -d "$RUNNER_TEMP/je2be-project"
+          PROJECT_ROOT="$(find "$RUNNER_TEMP/je2be-project" -type f \( -name settings.gradle.kts -o -name settings.gradle \) -printf '%h\n' | head -n 1)"
+          if [ -z "$PROJECT_ROOT" ]; then
+            echo "El ZIP no contiene settings.gradle.kts ni settings.gradle."
+            find "$RUNNER_TEMP/je2be-project" -maxdepth 3 -type f | head -n 80
+            exit 1
+          fi
+          echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
+          echo "Proyecto encontrado en: $PROJECT_ROOT"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK, NDK and CMake
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;26.3.11579264" \
+            "cmake;3.22.1"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build JE2BE Android and native engine
+        working-directory: ${{ env.PROJECT_ROOT }}
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Verify APK and native ARM64 engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$PROJECT_ROOT/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          unzip -l "$APK" | grep -q 'lib/arm64-v8a/libje2be_jni.so'
+          sha256sum "$APK"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: JE2BE-Android-ARM64-debug
+          path: ${{ env.PROJECT_ROOT }}/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
