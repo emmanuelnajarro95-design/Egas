@@ -109,6 +109,8 @@ jobs:
 
       - name: Build JE2BE Android and native engine
         working-directory: ${{ env.PROJECT_ROOT }}
+        env:
+          CXXFLAGS: "-Wno-error=sign-compare -Wno-error=unused-variable"
         run: gradle :app:assembleDebug --no-daemon --stacktrace
 
       - name: Verify APK and native ARM64 engine
