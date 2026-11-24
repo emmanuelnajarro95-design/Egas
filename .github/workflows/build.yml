@@ -82,10 +82,10 @@ jobs:
           cmake_candidates = []
           for cmake in root.rglob("CMakeLists.txt"):
               cmake_text = cmake.read_text(encoding="utf-8")
-              if re.search(r"add_library\\s*\\(\\s*je2be_jni\\b", cmake_text):
+              if re.search(r"add_library\s*\(\s*je2be_jni\b", cmake_text):
                   marker = "target_compile_options(je2be_jni PRIVATE -Wno-error=sign-compare -Wno-error=unused-variable)"
                   if marker not in cmake_text:
-                      cmake_text += "\\n\\n" + marker + "\\n"
+                      cmake_text += "\n\n" + marker + "\n"
                       cmake.write_text(cmake_text, encoding="utf-8")
                   cmake_candidates.append(str(cmake))
           if not cmake_candidates:
