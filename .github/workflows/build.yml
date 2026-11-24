@@ -77,7 +77,21 @@ jobs:
               activity_text = activity_text.replace(old, new, 1)
 
           activity.write_text(activity_text, encoding="utf-8")
-          print("Correcciones Kotlin aplicadas.")
+
+          import re
+          cmake_candidates = []
+          for cmake in root.rglob("CMakeLists.txt"):
+              cmake_text = cmake.read_text(encoding="utf-8")
+              if re.search(r"add_library\\s*\\(\\s*je2be_jni\\b", cmake_text):
+                  marker = "target_compile_options(je2be_jni PRIVATE -Wno-error=sign-compare -Wno-error=unused-variable)"
+                  if marker not in cmake_text:
+                      cmake_text += "\\n\\n" + marker + "\\n"
+                      cmake.write_text(cmake_text, encoding="utf-8")
+                  cmake_candidates.append(str(cmake))
+          if not cmake_candidates:
+              raise SystemExit("No se encontró el CMakeLists que declara je2be_jni.")
+          print("Opciones de warnings C++ aplicadas en:", ", ".join(cmake_candidates))
+          print("Correcciones Kotlin y CMake aplicadas.")
           PY
 
       - name: Set up JDK 17
@@ -109,8 +123,6 @@ jobs:
 
       - name: Build JE2BE Android and native engine
         working-directory: ${{ env.PROJECT_ROOT }}
-        env:
-          CXXFLAGS: "-Wno-error=sign-compare -Wno-error=unused-variable"
         run: gradle :app:assembleDebug --no-daemon --stacktrace
 
       - name: Verify APK and native ARM64 engine
