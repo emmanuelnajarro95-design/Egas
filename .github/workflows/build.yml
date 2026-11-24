@@ -49,6 +49,13 @@ jobs:
           nl -ba "$PROJECT_ROOT/app/src/main/java/app/je2be/android/ConvertWorker.kt" | sed -n '55,110p'
           echo "===== MainActivity.kt ====="
           nl -ba "$PROJECT_ROOT/app/src/main/java/app/je2be/android/MainActivity.kt" | sed -n '425,465p'
+          echo "===== ConvertWorker.kt start ====="
+          nl -ba "$PROJECT_ROOT/app/src/main/java/app/je2be/android/ConvertWorker.kt" | sed -n '1,58p'
+          echo "===== MainActivity enqueue and JobCard call sites ====="
+          grep -n -E 'JobCard\(|OneTimeWorkRequestBuilder|ConvertWorker|inputData' "$PROJECT_ROOT/app/src/main/java/app/je2be/android/MainActivity.kt" | head -n 100
+          echo "===== MainActivity around worker enqueue ====="
+          nl -ba "$PROJECT_ROOT/app/src/main/java/app/je2be/android/MainActivity.kt" | sed -n '100,235p'
+          exit 1
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
